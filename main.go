@@ -4,52 +4,49 @@ import (
 	"log"
 	"net/http"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-func getHttpBody(addr string) io.ReadCloser {
-	res, err := http.Get(addr);
+func fetchDoc(url string) *goquery.Document {
+	res, err := http.Get(url);
 
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != 200 {
 		log.Fatalf("status code error %d %s", res.StatusCode, res.Status)
 	}
 
-	return res.Body
+	doc, err := goquery.NewDocumentFromReader(res.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return doc
 }
 
-func getCompaniesInPage(doc *goquery.Document) {
+func getCompaniesInPage(doc *goquery.Document, res *map[string]string) {
 	doc.Find("h3.voffset0 a").Each(func (i int, s *goquery.Selection) {
 
 		href, exists := s.Attr("href")
 
 		if exists {
 			name := s.Text()
-			fmt.Printf("Company: %s | href: %s\n", name, href)
+			(*res)[name] = href
 		}
 	})
 }
 
-
-func main() {
-	const addr string = "https://pt.teamlyzer.com/companies/"
-	const pageQuery string = "?page="
-	body := getHttpBody(addr)
-	defer body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(body)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func getNumberOfPages(url string) int {
 	var n int
+	var err error
+	doc := fetchDoc(url)
+
 	doc.Find("ul.pagination li:nth-last-child(2)").Each(func(i int, s *goquery.Selection) {
 		n, err = strconv.Atoi(strings.TrimSpace(s.Text()))
 		if err != nil {
@@ -57,17 +54,43 @@ func main() {
 		}
 	})
 
-	for i := 1; i <= n; i++ {
-		page := fmt.Sprint(addr, pageQuery, i)
+	return n
+}
 
-		body = getHttpBody(page)
-		defer body.Close()
-		
-		doc, err = goquery.NewDocumentFromReader(body)
-		if err != nil {
-			log.Fatal(err)
-		}
+func getComanieWebsite(url string) string {
+	doc := fetchDoc(url)
 
-		getCompaniesInPage(doc)
+	ret := doc.Find("div.center_mobile.hidden-xs.company_add_details a:last-child").First()
+	href, exists := ret.Attr("href")
+
+	if exists {
+		return href
 	}
+
+	return ""
+}
+
+
+func main() {
+	const home string = "https://pt.teamlyzer.com"
+	const companySearch string = "https://pt.teamlyzer.com/companies/"
+	const pageQuery string = "?page="
+	
+	n := getNumberOfPages(companySearch)
+
+	companyUrl := make(map[string]string)
+	for i := 1; i <= n; i++ {
+		page := fmt.Sprint(companySearch, pageQuery, i)
+		doc := fetchDoc(page)
+		getCompaniesInPage(doc, &companyUrl)
+	}
+
+	companyWebsite := make(map[string]string)
+	for c, url := range companyUrl {
+		fullUrl := fmt.Sprint(home, url)
+		companyWebsite[c] = getComanieWebsite(fullUrl)
+	}
+
+	fmt.Println(companyWebsite)
+
 }
