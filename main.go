@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +13,7 @@ import (
 )
 
 var client = &http.Client{
-	Timeout: 30 * time.Second,
+	Timeout: 60 * time.Second,
 }
 
 func fetchDoc(url string) (*goquery.Document, error) {
@@ -47,7 +49,7 @@ func getCompaniesInPage(url string, res map[string]string) error {
 		href, exists := s.Attr("href")
 
 		if exists {
-			name := s.Text()
+			name := strings.TrimSpace(s.Text())
 			res[name] = href
 		}
 	})
@@ -75,7 +77,7 @@ func getCompanieWebsite(url string) (string, error) {
 	doc.Find("div.center_mobile.hidden-xs.company_add_details a").Each(func (i int, s *goquery.Selection){
 		href, exists := s.Attr("href")
 
-		if exists && s.Text() == "Website" {
+		if exists && s.Text() == strings.TrimSpace("Website") {
 			ret = href
 		}
 	})
@@ -88,6 +90,18 @@ func main() {
 	const home string = "https://pt.teamlyzer.com"
 	const companySearch string = "https://pt.teamlyzer.com/companies/"
 	const pageQuery string = "?page="
+
+	file, err := os.Create("companies.csv")
+	if err != nil {
+		fmt.Println(fmt.Errorf("Unable to create file: %w", err))
+		return
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	writer.Write([]string {"Company", "Website"})
 	
 	n, err := getNumberOfPages(companySearch)
 	if err != nil {
@@ -104,24 +118,20 @@ func main() {
 			fmt.Println(fmt.Errorf("Unable to reach page number %d: %w\n", i, err))
 		}
 
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(2 * time.Second)
 	}
 
-	companyWebsite := make(map[string]string)
 	for c, url := range companyUrl {
 		fullUrl := home + url
-		companyWebsite[c], err = getCompanieWebsite(fullUrl)
+		website, err := getCompanieWebsite(fullUrl)
 		
 		if err != nil {
 			fmt.Println(fmt.Errorf("Unable to extract %s's website: %w", c, err))
 		}
 
-		time.Sleep(200 * time.Millisecond)
-	}
+		writer.Write([]string {c, website})
+		writer.Flush()
 
-	for k, v := range companyWebsite {
-		fmt.Printf("%s : %s\n", k, v)
+		time.Sleep(2 * time.Second)
 	}
-
-	fmt.Printf("Amount of companies: %d\n", len(companyWebsite))
 }
