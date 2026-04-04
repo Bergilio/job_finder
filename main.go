@@ -1,73 +1,86 @@
 package main
 
 import (
-	"log"
-	"net/http"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-func fetchDoc(url string) *goquery.Document {
-	res, err := http.Get(url);
+var client = &http.Client{
+	Timeout: 30 * time.Second,
+}
 
+func fetchDoc(url string) (*goquery.Document, error) {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
+
+	res, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != 200 {
-		log.Fatalf("status code error %d %s", res.StatusCode, res.Status)
+		return nil, fmt.Errorf("Status code error %d %s", res.StatusCode, res.Status)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	return doc
+	return doc, nil
 }
 
-func getCompaniesInPage(doc *goquery.Document, res *map[string]string) {
+func getCompaniesInPage(url string, res map[string]string) error {
+	doc, err := fetchDoc(url)
+	if err != nil {
+		return err
+	}
+
 	doc.Find("h3.voffset0 a").Each(func (i int, s *goquery.Selection) {
 
 		href, exists := s.Attr("href")
 
 		if exists {
 			name := s.Text()
-			(*res)[name] = href
-		}
-	})
-}
-
-func getNumberOfPages(url string) int {
-	var n int
-	var err error
-	doc := fetchDoc(url)
-
-	doc.Find("ul.pagination li:nth-last-child(2)").Each(func(i int, s *goquery.Selection) {
-		n, err = strconv.Atoi(strings.TrimSpace(s.Text()))
-		if err != nil {
-			log.Fatal(err)
+			res[name] = href
 		}
 	})
 
-	return n
+	return nil
 }
 
-func getComanieWebsite(url string) string {
-	doc := fetchDoc(url)
-
-	ret := doc.Find("div.center_mobile.hidden-xs.company_add_details a:last-child").First()
-	href, exists := ret.Attr("href")
-
-	if exists {
-		return href
+func getNumberOfPages(url string) (int, error) {
+	doc, err := fetchDoc(url)
+	if err != nil {
+		return 0, err
 	}
 
-	return ""
+	ret := doc.Find("ul.pagination li:nth-last-child(2)").First()
+	return strconv.Atoi(strings.TrimSpace(ret.Text()))
+}
+
+func getCompanieWebsite(url string) (string, error) {
+	doc, err := fetchDoc(url)
+	if err != nil {
+		return "", err
+	}
+
+	ret := ""
+	doc.Find("div.center_mobile.hidden-xs.company_add_details a").Each(func (i int, s *goquery.Selection){
+		href, exists := s.Attr("href")
+
+		if exists && s.Text() == "Website" {
+			ret = href
+		}
+	})
+
+	return ret, nil
 }
 
 
@@ -76,21 +89,39 @@ func main() {
 	const companySearch string = "https://pt.teamlyzer.com/companies/"
 	const pageQuery string = "?page="
 	
-	n := getNumberOfPages(companySearch)
+	n, err := getNumberOfPages(companySearch)
+	if err != nil {
+		fmt.Println(fmt.Errorf("Unable to extract the amout of pages: %w", err))
+		return
+	}
 
 	companyUrl := make(map[string]string)
 	for i := 1; i <= n; i++ {
-		page := fmt.Sprint(companySearch, pageQuery, i)
-		doc := fetchDoc(page)
-		getCompaniesInPage(doc, &companyUrl)
+		page := companySearch + pageQuery + strconv.Itoa(i)
+		err = getCompaniesInPage(page, companyUrl)
+
+		if err != nil {
+			fmt.Println(fmt.Errorf("Unable to reach page number %d: %w\n", i, err))
+		}
+
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	companyWebsite := make(map[string]string)
 	for c, url := range companyUrl {
-		fullUrl := fmt.Sprint(home, url)
-		companyWebsite[c] = getComanieWebsite(fullUrl)
+		fullUrl := home + url
+		companyWebsite[c], err = getCompanieWebsite(fullUrl)
+		
+		if err != nil {
+			fmt.Println(fmt.Errorf("Unable to extract %s's website: %w", c, err))
+		}
+
+		time.Sleep(200 * time.Millisecond)
 	}
 
-	fmt.Println(companyWebsite)
+	for k, v := range companyWebsite {
+		fmt.Printf("%s : %s\n", k, v)
+	}
 
+	fmt.Printf("Amount of companies: %d\n", len(companyWebsite))
 }
