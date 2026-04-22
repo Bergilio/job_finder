@@ -29,14 +29,6 @@ ollama serve
 
 ## How to run
 
-**Scrape companies from Teamlyzer** (only needed once, `data/companies.csv` is already included):
-
-In `main.go`, uncomment `scraper.GetTeamlyzerCompanies()` and run:
-
-```bash
-go run main.go
-```
-
 **Run the full pipeline:**
 
 ```bash
