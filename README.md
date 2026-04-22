@@ -50,7 +50,3 @@ go build -o job_finder .
 - [ ] Migrate `data/jobs.json` output to a SQLite database for querying and deduplication
 - [ ] Rate limiting and retry logic for failed requests
 - [ ] Switch from local `gemma4:e2b` to Anthropic/OpenAI API for production runs at scale
-
-## Performance notes
-
-The local `gemma4:e2b` model runs at approximately 43 seconds per job posting on a GTX 1650 (4GB VRAM). For the full dataset of ~4700 companies this is not viable locally. The Anthropic or OpenAI API is recommended for production runs — estimated cost under $1 with GPT-4o-mini batch processing.
